@@ -1,0 +1,10 @@
+{
+  "timeZone": "Asia/Tokyo",
+  "runtimeVersion": "V8",
+  "dependencies": {
+    "enabledAdvancedServices": [
+      { "userSymbol": "Calendar", "version": "v3", "serviceId": "calendar" }
+    ]
+  },
+  "oauthScopes": ["https://www.googleapis.com/auth/calendar.readonly"]
+}

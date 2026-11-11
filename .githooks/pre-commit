@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# mainへの直接コミットと、秘密情報の追加を止めます。
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+if [ "$(git symbolic-ref --short HEAD)" = main ]; then
+  echo "mainには直接コミットせず、作業ブランチを使ってください。" >&2
+  exit 1
+fi
+python3 scripts/check-secrets.py --staged
