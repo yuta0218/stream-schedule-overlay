@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>配信予定・取得検証</title>
+  <link rel="stylesheet" href="probe.css">
+  <script src="config.js" defer></script>
+  <script src="schedule-data.js" defer></script>
+  <script src="schedule-feed.js" defer></script>
+  <script src="probe.js" defer></script>
+</head>
+<body>
+  <main>
+    <h1>配信予定・取得検証</h1>
+    <p>Apps ScriptのJSONを、Googleにログインせず取得できるか確認するページです。本番の帯とは別に、通信結果と更新回数を確認できます。</p>
+    <form id="connection">
+      <label for="endpoint">公開済みWebアプリのURL（末尾が /exec）</label>
+      <input id="endpoint" type="url" placeholder="Apps Scriptの公開URLを入力" autocomplete="off">
+      <button type="submit">取得を開始</button>
+    </form>
+    <p><a href="probe.html?demo=1">ダミーデータでページを確認</a> ・ <a href="probe.html">実データの取得に戻る</a></p>
+    <p id="status" role="status" aria-live="polite">URLの設定を待っています。</p>
+    <p id="details"></p>
+    <pre id="payload" hidden></pre>
+  </main>
+</body>
+</html>

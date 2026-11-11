@@ -18,6 +18,7 @@ function server(pages, id = 'yutasworks@gmail.com') {
     Calendar: {
       Calendars: { get(value) { assert.equal(value, 'primary'); return { id }; } },
       Events: { list(value, options) {
+        if (value === 'ja.japanese.official#holiday@group.v.calendar.google.com') return { items: [] };
         assert.equal(value, 'primary');
         calls.push(options);
         return pages[calls.length - 1];
@@ -50,7 +51,7 @@ test('場所欄だけで選び、複数ページを取得し、許可した項�
   ]);
   const result = JSON.parse(JSON.stringify(context.buildPayload_(new Date('2026-11-11T00:00:00+09:00'))));
   assert.deepEqual(result.streams.map(s => s.title), ['配信A', '配信B']);
-  assert.deepEqual(Object.keys(result), ['generatedAt', 'streams']);
+  assert.deepEqual(Object.keys(result), ['generatedAt', 'streams', 'holidays']);
   result.streams.forEach(s => assert.deepEqual(Object.keys(s), ['start', 'end', 'title']));
   assert.equal(calls[1].pageToken, '次ページ');
   assert.equal(JSON.stringify(result).includes('非公開'), false);
@@ -113,7 +114,7 @@ function client(demo = true, configured = false) {
   });
   vm.runInContext(read('docs/config.js'), context);
   if (!configured) context.ScheduleConfig.webAppUrl = '';
-  vm.runInContext(read('docs/probe.js'), context);
+  vm.runInContext(read('docs/schedule-data.js') + '\n' + read('docs/schedule-feed.js') + '\n' + read('docs/probe.js'), context);
   return { elements, requests, scripts, timers, timeouts, context, setClock(value) { clock = Date.parse(value); } };
 }
 
@@ -191,7 +192,7 @@ test('JSONとJSONPが同じ公開項目を返し、JSONPも対象外予定を含
   vm.runInNewContext(jsonp.text, { streamScheduleCallback_1(data) { delivered = data; } });
   assert.deepEqual(JSON.parse(JSON.stringify(delivered.streams)), JSON.parse(normal.text).streams);
   assert.equal(jsonp.text.includes('非公開'), false);
-  assert.deepEqual(Object.keys(delivered), ['generatedAt', 'streams']);
+  assert.deepEqual(Object.keys(delivered), ['generatedAt', 'streams', 'holidays']);
 });
 
 test('不正なJSONP関数名はカレンダーを読む前に拒否する', () => {
@@ -251,4 +252,44 @@ test('古い公開版など、読み込みだけ成功してデータが届か�
   assert.match(c.elements.status.textContent, /公開バージョン/);
   assert.equal(c.elements.payload.hidden, true);
   assert.equal(c.timeouts.size, 0);
+});
+
+test('祝日専用カレンダーを全ページ読み、範囲内の日付と名前だけを返す', () => {
+  const c = server([]);
+  const holidayCalls = [];
+  const holiday = (date, end, name, extra = {}) => Object.assign({
+    start: { date }, end: { date: end }, summary: name,
+    id: '非公開ID', description: '非公開説明', location: '非公開場所'
+  }, extra);
+  c.context.Calendar.Events.list = (id, options) => {
+    if (id === 'primary') return { items: [] };
+    assert.equal(id, 'ja.japanese.official#holiday@group.v.calendar.google.com');
+    holidayCalls.push(options);
+    if (!options.pageToken) return { items: [
+      holiday('2026-04-29', '2026-04-30', '昭和の日'),
+      holiday('2026-05-03', '2026-05-04', '憲法記念日'),
+      holiday('2026-04-27', '2026-04-28', '範囲外'),
+      holiday('2026-05-13', '2026-05-14', '範囲外'),
+      holiday('2026-05-04', '2026-05-05', '削除済み', { status: 'cancelled' })
+    ], nextPageToken: '次の祝日' };
+    return { items: [holiday('2026-05-06', '2026-05-07', '憲法記念日 振替休日')] };
+  };
+  const result = JSON.parse(JSON.stringify(c.context.buildPayload_(new Date('2026-04-28T20:00:00+09:00'))));
+  assert.deepEqual(result.holidays, [
+    { date: '2026-04-29', name: '昭和の日' },
+    { date: '2026-05-03', name: '憲法記念日' },
+    { date: '2026-05-06', name: '憲法記念日 振替休日' }
+  ]);
+  assert.equal(holidayCalls[1].pageToken, '次の祝日');
+  assert.equal(holidayCalls[0].timeMax, '2026-05-12T15:00:00.000Z');
+  assert.equal(JSON.stringify(result).includes('非公開'), false);
+});
+
+test('配信取得が成功しても祝日取得が失敗したら、不完全な成功応答を返さない', () => {
+  const c = server([]);
+  c.context.Calendar.Events.list = id => {
+    if (id === 'primary') return { items: [] };
+    throw new Error('祝日取得失敗');
+  };
+  assert.throws(() => c.context.doGet(), /祝日取得失敗/);
 });

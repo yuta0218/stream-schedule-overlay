@@ -1,0 +1,67 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 100%; min-height: 100%; background: transparent; }
+body {
+  font-family: "Yu Gothic UI", "Meiryo", "Hiragino Sans", system-ui, sans-serif;
+  color: #fff;
+}
+.overlay-stage {
+  display: flex;
+  align-items: flex-end;
+  min-height: 100vh;
+  padding: 0 4px;
+}
+.schedule-panel {
+  width: 432px;
+  flex: 0 0 432px;
+  padding: 18px 21px;
+  background: rgba(16,18,28,.86);
+  border: 2px solid rgba(255,255,255,.14);
+  border-radius: 16px;
+}
+[hidden] { display: none !important; }
+h1 {
+  margin: 0 0 14px;
+  color: rgba(255,255,255,.72);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 28px;
+}
+.schedule-row {
+  display: flex;
+  align-items: flex-start;
+  min-height: 32px;
+  border-top: 1px solid rgba(255,255,255,.08);
+  padding: 3px 0;
+  color: rgba(255,255,255,.5);
+  font-size: 18px;
+  line-height: 25px;
+  font-variant-numeric: tabular-nums;
+}
+.date { flex: 0 0 56px; text-align: right; font-weight: 700; white-space: nowrap; }
+.weekday { flex: 0 0 24px; margin-left: 8px; text-align: center; }
+.content { flex: 1 1 auto; min-width: 0; margin-left: 10px; }
+.has-stream {
+  background: rgba(244,81,30,.16);
+  border-top-color: transparent;
+  border-radius: 9px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  margin: 4px 0;
+}
+.has-stream .date, .has-stream .weekday { color: #ff9a5c; }
+.stream + .stream { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.08); }
+.stream-meta { font-size: 16px; line-height: 24px; color: #ff9a5c; }
+.stream-label { margin-left: 10px; font-weight: 700; }
+.stream-title {
+  color: #fff;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+}
+.holiday-name { color: #ff8f9f; font-size: 16px; line-height: 25px; overflow-wrap: break-word; }
+.has-stream .holiday-name { margin-top: 5px; }
+.is-holiday .date, .is-sunday .date, .is-sunday .weekday { color: #ff8f9f; }
+.is-saturday .date, .is-saturday .weekday { color: #8fb8ff; }
+.is-holiday.is-saturday .date { color: #ff8f9f; }

@@ -1,4 +1,4 @@
-/** 取得検証用。公開するJSONは生成日時と対象配信の開始・終了・タイトルだけです。 */
+/** カレンダーは読み取り専用。公開項目は生成日時・配信日時・タイトル・祝日のみです。 */
 function doGet(request) {
   var callback = request && request.parameter && request.parameter.callback;
   if (callback !== undefined && !validCallback_(callback)) {
@@ -50,7 +50,7 @@ function buildPayload_(now) {
       if (event.status === "cancelled") return;
       if (typeof event.location !== "string" ||
           event.location.indexOf(ScheduleConfig.locationContains) === -1) return;
-      // 時刻のない終日予定は、この配信時刻の検証には含めません。
+      // 開始時刻を表示できない終日予定は、配信に含めません。
       if (!event.start || !event.start.dateTime || !event.end || !event.end.dateTime) return;
       var start = new Date(event.start.dateTime);
       var end = new Date(event.end.dateTime);
@@ -65,9 +65,41 @@ function buildPayload_(now) {
     pageToken = page.nextPageToken;
   } while (pageToken);
   streams.sort(function (a, b) { return new Date(a.start) - new Date(b.start); });
-  return { generatedAt: formatDateTime_(now), streams: streams };
+  return { generatedAt: formatDateTime_(now), streams: streams, holidays: readHolidays_(from, until) };
 }
 
 function formatDateTime_(date) {
   return Utilities.formatDate(date, ScheduleConfig.timeZone, "yyyy-MM-dd'T'HH:mm:ssXXX");
+}
+
+function readHolidays_(from, until) {
+  var first = Utilities.formatDate(from, ScheduleConfig.timeZone, "yyyy-MM-dd");
+  var limit = Utilities.formatDate(until, ScheduleConfig.timeZone, "yyyy-MM-dd");
+  var holidays = [];
+  var pageToken;
+  do {
+    var options = {
+      timeMin: from.toISOString(), timeMax: until.toISOString(),
+      timeZone: ScheduleConfig.timeZone, singleEvents: true, showDeleted: false,
+      orderBy: "startTime", maxResults: 250,
+      fields: "nextPageToken,items(status,summary,start,end)"
+    };
+    if (pageToken) options.pageToken = pageToken;
+    // 行事を含む通常版ではなく、祝日・振替休日・国民の休日だけの公開カレンダー。
+    var page = Calendar.Events.list(ScheduleConfig.holidayCalendarId, options);
+    (page.items || []).forEach(function (event) {
+      if (event.status === "cancelled" || !event.start || !event.start.date ||
+          !event.end || !event.end.date || typeof event.summary !== "string") return;
+      var date = event.start.date < first ? first : event.start.date;
+      // 終日予定の終了日は含めません。範囲外の日付は公開しません。
+      while (date < event.end.date && date < limit) {
+        holidays.push({ date: date, name: event.summary });
+        date = Utilities.formatDate(new Date(new Date(date + "T00:00:00+09:00").getTime() + 86400000),
+          ScheduleConfig.timeZone, "yyyy-MM-dd");
+      }
+    });
+    pageToken = page.nextPageToken;
+  } while (pageToken);
+  holidays.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+  return holidays;
 }

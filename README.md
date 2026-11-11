@@ -1,134 +1,131 @@
-# 配信予定オーバーレイ・取得検証用の試作
+# 配信予定オーバーレイ
 
-GitHub PagesからApps ScriptのJSONを匿名で取得できるか確かめるための最小構成です。Apps Scriptの公開とローカルページからの実データ取得を確認しています。帯の表示は、GitHub PagesとOBSでの取得検証後に実装します。
+個人のアニメ同時視聴配信で、今後15日分の配信予定をOBSに重ねて表示します。Apps Scriptは個人用Googleカレンダーを読み取り、GitHub Pagesの静的ページへJSON・JSONPで返します。予定の登録・変更は行いません。
 
-リポジトリ: [yuta0218/stream-schedule-overlay](https://github.com/yuta0218/stream-schedule-overlay)
+- リポジトリ: [yuta0218/stream-schedule-overlay](https://github.com/yuta0218/stream-schedule-overlay)
+- 本番表示: [配信予定の帯](https://yuta0218.github.io/stream-schedule-overlay/)
+- 通信診断: [取得検証ページ](https://yuta0218.github.io/stream-schedule-overlay/probe.html)
+- Pages公開元: `feature/connection-probe` ブランチの `/docs`。ビルド工程・依存ライブラリなし。
 
-## GitHub Pagesの公開設定
+## 表示と更新
 
-- 公開元: `feature/connection-probe` ブランチの `/docs`
-- 設定画面: リポジトリの Settings → Pages → Deploy from a branch
-- `.nojekyll` を配置し、HTML・CSS・JavaScriptをそのまま配信する。
-- `docs/config.js` に設定済みのApps Script公開URLへ、ページを開くと自動で接続する。
+- 今日を含む15日間を、Asia/Tokyo固定で1日1行に表示します。端末側のタイムゾーンには依存しません。
+- 場所欄に `twitch.tv/yuta0218` を含む時刻付き予定だけが対象です。判定はApps Scriptで行い、タイトルや説明での検索はしません。
+- 同じ日の配信は開始時刻順。開始時刻とタイトルを表示し、終了時刻は表示しません。タイトルは ` / ` ごとに作品の行を分けます。長い作品名は省略せず折り返します。
+- 当日の配信には開始前「今夜」、開始時刻から終了時刻直前まで「配信中」を表示します。終了後も当日の行は残ります。ラベルは通信とは別に毎秒確認します。
+- 祝日名を表示し、祝日の日付は赤。曜日は土曜が青、日曜が赤。先頭行と毎月1日には月を表示します。
+- 5分ごとに取得し直します。日付変更は毎秒監視し、変わったら直ちに取得します。
+- 取得・形式検証に失敗したら直前の帯を保持します。初回成功までは見出しや日付も出さず、ページ全体が透明です。日付変更時の取得失敗でも、成功するまでは前回の帯を保持します。
+- JSONPを利用し、OBSで失敗したGoogleへのXHRによるCORS事前確認を使いません。タイトル・祝日名はHTMLではなくテキストとして描画します。
 
-GitHub Pagesは任意のブランチの `/docs` から公開できます。[公式手順](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site)
+板は幅432px、背景 `rgba(16,18,28,.86)`、枠2px、角丸16px、余白18px・21px。見出し20px、日付・曜日18px、作品名22px・600、時刻・ラベル16pxです。配色とフォントは合意した表示基準に合わせています。
 
-## 今回の範囲
+## OBSの設定
 
-- 個人アカウントのprimaryから、今日を含む15日分の時刻付き配信予定を読む。
-- 場所欄に `twitch.tv/yuta0218` が含まれる予定だけをサーバー側で選ぶ。
-- JSONは `generatedAt` と `streams` のみ。配信ごとの項目は `start`・`end`・`title` のみ。
-- 設定は `docs/config.js` が正本。依存ライブラリ・ビルド工程なし。
-- 取得ページは5分ごとと日付変更時に再取得する。失敗時は直前のJSONを保持し、初回失敗時はJSONを表示しない。
-- 診断用の状態表示は常に表示する。OBS本番用の帯ではない。
+1. ブラウザソースのURLを本番表示のURLにする。Googleへのログインは不要です。
+2. 幅440px・高さ900pxを指定する。板は左右4pxの余白を取り、ブラウザソースの下端に配置されます。
+3. 15日分が収まらなければ、文字や日数を変えず、ブラウザソースの高さを増やす。板の高さは配信件数・作品数・折り返しで変わります。
+4. 配信画面内の位置はOBSでソースを移動して決める。
+5. 通信の確認は `probe.html` を別のブラウザソースか一時的なURL変更で開き、5分後に成功回数と最終成功時刻が進むことを確認する。確認後は本番URLに戻す。
 
-祝日の取得・帯の描画・ラベル切り替え・月またぎの見た目・高さ調整は未実装です。今回のJSONは `holidays` を含みません。終日予定と前日開始の配信も今回の検証対象外です。日付・時刻はAsia/Tokyoで扱います。
+背景は透明です。ブラウザでは透明部分が白く見える場合があります。OBSで追加の背景色指定は不要です。
 
-## ファイル
+## ダミーデータで見た目を確認する
 
-| ファイル | 用途 |
-| --- | --- |
-| `apps-script/Code.gs` | 読み取り・場所欄の判定・JSON応答 |
-| `apps-script/appsscript.json` | タイムゾーン・Calendar v3・読み取り専用スコープ |
-| `docs/config.js` | 配信URLの判定文字列・日数・更新間隔・公開URL |
-| `docs/index.html` | 取得確認ページ |
-| `docs/probe.js` | JSONP取得・形式確認・更新・失敗時の保持 |
-| `docs/probe.css` | 取得確認ページの表示 |
-| `docs/demo.json` | 固定の架空予定。現在の日付に追随しない |
-| `tests/probe.test.cjs` | Googleを呼ばないロジック検証 |
-| `.githooks/`・`scripts/check-secrets.py` | コミット・push前の秘密情報検査 |
-
-## ローカルで開く
-
-プロジェクトのルートで実行します。
+`?demo=1` を付けるとGoogleへ接続せず、架空の予定で表示できます。プロジェクトのルートでローカルHTTPサーバーを起動します。
 
 ```sh
 python3 -m http.server 8765 --bind 127.0.0.1 --directory docs
 ```
 
-ブラウザで `http://127.0.0.1:8765/?demo=1` を開くとダミーJSONを取得します。ファイルを直接開く `file://` ではなくHTTPで開いてください。ダミーの成功は、Googleとの接続成功を意味しません。サーバーを止めるには起動したターミナルでCtrl+Cを押します。
+| URLの末尾 | 確認する内容 |
+| --- | --- |
+| `/?demo=1` | 4月28日から15日間。3配信・祝日のみの日・配信と祝日の同日表示・月またぎ・土日・今夜 |
+| `/?demo=1&state=live` | 当日の配信中 |
+| `/?demo=1&state=ended` | 終了後も当日の配信を残し、ラベルを外す |
+| `/?demo=1&busy=1` | 同日複数配信の時刻順・長い作品名・900pxを超える高さ |
+| `/probe.html?demo=1` | 通信診断用の固定JSON。HTTPサーバーが必要 |
 
-```sh
-node --test tests/probe.test.cjs
+例: `http://127.0.0.1:8765/?demo=1`。本番の帯に操作ボタンは表示しません。ダミーの時計は各見本の時刻に固定し、再現できるようにしています。MacのChromeでは通常の見本は約805px、件数を増やした見本は約1,075pxでした。Windowsのフォントや実際の作品名では高さが変わります。
+
+## Apps Scriptを祝日対応版に更新する
+
+**Pagesを本番の帯へ更新する前に、Apps Scriptを更新してください。** 旧公開版は `holidays` を返さないため、本番ページは不完全な応答として表示しません。
+
+1. `yutasworks@gmail.com` の既存Apps Scriptプロジェクトを開く。
+2. `コード.gs` を [apps-script/Code.gs](apps-script/Code.gs) の全文で置き換える。
+3. `Config.gs` を [docs/config.js](docs/config.js) の全文で置き換える。設定の正本は `docs/config.js` です。`holidayCalendarId` が追加されています。
+4. 保存し、エディターから `doGet` を実行する。失敗したら実行履歴を確認する。祝日の取得失敗を空の祝日一覧には置き換えません。
+5. デプロイ → デプロイを管理 → 既存Webアプリの鉛筆 → 新バージョン → デプロイ。実行ユーザー「自分」、アクセス「全員」を維持し、既存の `/exec` URLを使う。
+6. 公開URLを開き、`generatedAt`・`streams`・`holidays` があることを確認する。11月11日からの範囲では、祝日は11月23日の「勤労感謝の日」だけになる。
+7. 本人承認を経てPagesを更新し、通信診断ページと本番表示を確認する。
+
+初回作成時のマニフェストは [apps-script/appsscript.json](apps-script/appsscript.json)。Calendar v3の高度なサービス、タイムゾーン `Asia/Tokyo`、`calendar.readonly` のみの設定です。今回スコープを増やしていないため、既存マニフェストの変更は不要です。
+
+設定を変更したときは `docs/config.js` とApps Scriptの `Config.gs` を同じ内容にし、Apps Scriptを再公開してください。設定は手動同期です。OBS・表示ページはGoogleへのログインを行いません。
+
+## 祝日の取得元と公開項目
+
+祝日専用の公開カレンダー `ja.japanese.official#holiday@group.v.calendar.google.com` を使います。通常版 `ja.japanese#holiday@group.v.calendar.google.com` には、七五三などの行事が入るため使いません。祝日専用版は振替休日・国民の休日も含みます。
+
+2026年11月11日に両方の公開ICSを読み比べました。祝日専用版の2026年の18日分は、内閣府の国民の祝日・休日の一覧と日付が一致しました。七五三・クリスマス・銀行休業日・大晦日は含まれていません。Google側の祝日情報は更新されるため、表示年の情報は取得元に従います。
+
+- [Googleの祝日専用カレンダー実データ（ICS）](https://calendar.google.com/calendar/ical/ja.japanese.official%23holiday%40group.v.calendar.google.com/public/basic.ics)
+- [国民の祝日について・内閣府](https://www8.cao.go.jp/chosei/shukujitsu/gaiyou.html)
+- [祝日とその他の行事の表示設定・Google公式ヘルプ](https://support.google.com/calendar/answer/13748345?hl=ja)
+
+公開する項目は次だけです。説明・参加者・場所・予定IDは含めません。
+
+```json
+{
+  "generatedAt": "2026-11-11T20:55:00+09:00",
+  "streams": [
+    { "start": "2026-11-11T21:00:00+09:00", "end": "2026-11-11T22:00:00+09:00", "title": "架空の作品 #1" }
+  ],
+  "holidays": [
+    { "date": "2026-11-23", "name": "勤労感謝の日" }
+  ]
+}
 ```
 
-## セットアップと取得確認
+パラメータなしではJSON、`?callback=streamScheduleCallback_1` ではJSONPを返します。受け取り関数名は設定した接頭辞と数字に限定し、カレンダーを読む前に検証します。
 
-### 1. 本人がApps Scriptを準備する
+終日予定は配信時刻を表示できないため除外し、配信は開始日の行に表示します。前日開始の配信は15日分の範囲には含めません。場所欄が空の既存予定を補完する処理は行いません。
 
-1. `yutasworks@gmail.com` でApps Scriptの新規プロジェクトを作る。会社用アカウントでは作らない。
-2. `Code.gs` に `apps-script/Code.gs` の内容を貼り付ける。
-3. スクリプトファイル `Config.gs` を追加し、`docs/config.js` の内容をそのまま貼り付ける。
-4. プロジェクトの設定からマニフェストを表示し、`appsscript.json` に同梱の内容を貼り付ける。Calendar v3の高度なサービスが有効であることも確認する。
-5. タイムゾーンが `Asia/Tokyo`、OAuthスコープが `https://www.googleapis.com/auth/calendar.readonly` の1件だけであることを確認する。
-6. エディターから `doGet` を実行し、本人が権限を許可する。別アカウントのprimaryならスクリプトは停止する。
-7. 本人がWebアプリとして新規デプロイする。実行ユーザーは「自分」、アクセスできるユーザーは「全員」。末尾が `/exec` のURLを控える。
+## ファイルとテスト
 
-設定の正本を変更した場合は、Apps Scriptの `Config.gs` に同じ内容を貼り直し、公開デプロイを新しいバージョンに更新します。手動同期であり、自動同期ではありません。
+| ファイル | 役割 |
+| --- | --- |
+| `apps-script/Code.gs` | 読み取り・配信の選別・祝日の取得・JSON・JSONP応答 |
+| `docs/config.js` | アカウント・場所の判定文字列・祝日カレンダー・日数・更新間隔・公開URL |
+| `docs/index.html`・`overlay.css`・`overlay.js` | 本番の帯・配色・安全なテキスト描画 |
+| `docs/schedule-data.js` | 日付・ラベル・応答検証・日別の並べ替え |
+| `docs/schedule-feed.js` | 本番と診断で共用するJSONP取得・更新・後始末 |
+| `docs/demo.js` | Googleに接続しない帯の見本 |
+| `docs/probe.html`・`probe.css`・`probe.js` | 診断ページ・試行と成功の回数表示 |
+| `docs/demo.json` | 診断用の固定ダミーJSON |
+| `tests/*.test.cjs` | 読み取り・非公開項目の除外・日時境界・描画・通信失敗の検証 |
 
-### 公開済みApps ScriptをJSONP対応版に更新する
+```sh
+node --test tests/*.test.cjs
+```
 
-1. 個人アカウントの既存プロジェクトを開く。
-2. `コード.gs` を `apps-script/Code.gs` の内容で置き換える。
-3. `Config.gs` を `docs/config.js` の内容で置き換える。`jsonpCallbackPrefix` が追加されていることを確認する。
-4. 保存し、デプロイ → デプロイを管理 → 現在のWebアプリの鉛筆アイコンを選ぶ。
-5. バージョンに「新バージョン」を選び、デプロイする。既存デプロイの更新なので、同じ `/exec` URLを使う。
-6. `/exec?callback=streamScheduleCallback_1` をブラウザで開くと、`streamScheduleCallback_1(` で始まる応答になる。パラメータなしでは、従来のJSONを返す。
+ローカルGitフックは `git config core.hooksPath .githooks` で有効にします。秘密情報を検査し、mainへの直接コミット・pushを止めます。GitHubへのpushは、リポジトリ・remote・ref・コミット・変更内容・forceと削除の有無を示し、本人の一回限りの承認を得てから行います。
 
-OAuthスコープは変更していないため、マニフェストの変更は不要。初回公開と同じく実行ユーザーは本人、アクセスできるユーザーは全員とする。
+## 確認状況（2026年11月11日）
 
-### 2. ローカルのページから実データを取得する
+- [x] JSONPによる実データ取得をGitHub Pages・MacのChromeで確認した。
+- [x] WindowsのOBS 33.0.1でJSONP取得と5分更新を本人が確認した。試行2回・成功2回。
+- [x] 公開中の配信3件を個人カレンダーと照合し、開始・終了・タイトルが一致し、公開項目も限定されていた。
+- [x] 祝日専用カレンダーの2026年実データを確認した。
+- [x] Node.jsのテスト17件で、対象外予定の除外・項目制限・祝日のページ分割・期間境界・ラベル・失敗時の保持・日付変更時の取得を確認した。
+- [x] MacのChromeで幅440pxの帯を開き、通常・配信中・終了後・複数配信・長いタイトル・高さ増加の見本を確認した。
+- [ ] 祝日対応版をApps Scriptに再公開し、Calendar API経由で11月23日の祝日が返ることを確認する。
+- [ ] 本番の帯をPagesへ反映し、WindowsのOBSで透明背景・文字・5分更新を本人が確認する。
 
-`http://127.0.0.1:8765/` を開くと、設定済みの公開URLからJSONPで自動取得します。別の公開URLを試す場合は、入力欄を変更して「取得を開始」を押します。成功時は「実データ取得成功（JSONP）」と表示します。ダミー表示だけは同じ配信元のJSONをXHRで取得し、Googleには接続しません。
+現在の15日間には対象外の予定がないため、実カレンダーの対象外予定を除外できたことの突合は未確認です。対象外予定の除外は模擬データで検証済みです。検証用に実カレンダーへ予定を作成したり、非公開予定の内容を公開記録に残したりしません。
 
-JSONPは、Apps Scriptが公開予定をJavaScriptの関数呼び出しとして返し、ページがscript要素から受け取る方式です。サーバーが受け付ける関数名は、設定した接頭辞と数字だけに限定しています。公開する項目と場所欄の絞り込みはJSON応答と共通です。受信後もデータの形式を確認し、タイトルはテキストとして表示します。カレンダーは引き続き読み取り専用です。
-
-応答後・通信失敗時・20秒のタイムアウト時にscript要素・受け取り関数・タイマーを片付けます。取得ごとに関数名を変え、日付変更前などの古い応答で現在の表示を上書きしません。古い公開版など、読み込み後にデータが届かない場合も取得失敗として扱います。
-
-### 3. GitHub Pagesから確認する
-
-1. 本人に個人GitHubアカウント名と公開リポジトリ名を確認する。仮称は `stream-schedule-overlay`。会社組織には作らない。
-2. OBSで自動取得する際は、`docs/config.js` の `webAppUrl` に `/exec` のURLを設定する。URLは公開ソースに含まれる。認証トークンは設定しない。
-3. push前にリポジトリ・remote・ref・コミット・変更概要・forceや削除の有無を示し、本人の一回限りの承認を得る。
-4. 承認を経てGitHub Pagesの公開元を `feature/connection-probe` ブランチの `/docs` に設定する。公開対象のフォルダは `docs`。
-5. GitHub PagesのURLから「実データ取得成功」とJSON本文が表示されることを確認する。Googleにログインしていないブラウザ環境でも確認する。Apps ScriptのURLを直接開けるだけでは合格にしない。
-
-### 4. 本人がWindowsのOBSで確認する
-
-1. OBSのバージョンを記録する。
-2. ブラウザソースにGitHub PagesのURLを指定する。今回の診断ページは幅760px・高さ900px程度で確認する。本番用の幅440pxは帯の実装後に使う。
-3. GoogleにログインせずJSONを取得できることを確認する。
-4. 5分以上待ち、成功回数と最終成功時刻が進むことを確認する。手動のページ再読込だけでは自動更新の確認にならない。
-
-## 取得検証の合格条件
-
-- [ ] Apps Scriptの読み取り専用スコープと実行アカウントを確認した。
-- [ ] 実際のprimaryを見比べ、対象の配信は返り、場所欄が空・別URLの予定は返らないことを確認した。対象外予定はGoogle上で確認し、JSONや公開の検証記録にコピーしない。
-- [ ] 公開JSONに説明・参加者・場所・予定IDがないことを確認した。
-- [ ] GitHub Pagesから、ログインなしでJSON本文を取得できた。
-- [ ] WindowsのOBSから取得でき、5分ごとの更新が動いた。
-
-実データが0件の場合、空配列だけでは絞り込みの正しさは証明できません。対象予定の場所欄を読み取りで確認します。予定の追加・変更・場所欄の補完は今回行いません。
-
-初回失敗ではJSON本文は非表示、成功後の失敗では直前のJSONを保持します。日付変更後の再取得に失敗した場合も、成功するまで古いJSONを保持します。エラー詳細のカレンダー内容を返す独自のエラーJSONは実装していません。Apps Scriptの実行履歴で原因を確認してください。
-
-取得できなければ、環境・エラー・成功した段階を記録し、代替方式を本人へ提案してから進めます。ローカルのモック検証が通っても、GitHub PagesとOBSから取得できることは実環境で別途確認する必要があります。
-
-## 検証した結果（2026年11月11日）
-
-- Node.jsのテスト10件が成功。場所欄の絞り込み・公開項目の制限・ページ分割・期間境界・別アカウントでの停止・JSONPの関数名検証・失敗時の保持・日付変更時の再取得をモックで確認した。
-- Chromeでローカルページを開き、ダミーJSONと取得成功の表示を目視確認した。
-- Apps Scriptの公開後、ログインなしのHTTP GETとローカルページの両方で実データ取得に成功した。返却項目は生成日時と配信の開始・終了・タイトルのみだった。
-- 通常のJSON取得はMacとWindowsのChromeで成功した。WindowsのOBS 33.0.1では、Googleのリダイレクト先への事前確認がCORSエラーで拒否された。ログの失敗時刻は19:29・19:34・19:39で、自動更新の試行も確認できた。
-- OBSの結果を受け、本人の承認後に実データの取得をJSONPへ変更した。JSONPによる実Googleからの取得は、Apps Scriptの再公開後に検証する。WindowsのOBSでの取得成功と実時間での5分更新も、再検証が必要。
-- ローカルでは、変更したApps Scriptを模擬カレンダーで実行し、ページとは別ポートからJavaScriptとして返した。CORS許可ヘッダーなしでも、Chromeのページで「実データ取得成功（JSONP）」と模擬予定の表示を確認した。実GoogleとWindowsのOBSを使った検証ではない。
-- 対象外予定が除外されていることのカレンダーとの突合は未確認。
-
-## ローカルのGitフック
-
-`git config core.hooksPath .githooks` で、コミット前とpush前の秘密情報検査を有効にします。`main` への直接コミット・直接pushも止めます。フックは本人承認の代わりにはなりません。
-
-## 参照した公式資料
+## APIの公式資料
 
 - [Advanced Calendar Service](https://developers.google.com/apps-script/advanced/calendar)
 - [Events: list（期間境界・繰り返し・ページ分割）](https://developers.google.com/workspace/calendar/api/v3/reference/events/list)

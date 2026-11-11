@@ -3,6 +3,7 @@ var ScheduleConfig = {
   expectedCalendarId: "yutasworks@gmail.com",
   timeZone: "Asia/Tokyo",
   locationContains: "twitch.tv/yuta0218",
+  holidayCalendarId: "ja.japanese.official#holiday@group.v.calendar.google.com",
   days: 15,
   refreshMs: 5 * 60 * 1000,
   requestTimeoutMs: 20000,
