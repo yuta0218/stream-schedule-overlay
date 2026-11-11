@@ -39,38 +39,78 @@
 
   function request() {
     if (!endpoint || active) return;
-    var xhr = new XMLHttpRequest();
-    active = xhr;
+    var task = { cleanup: function () {} };
+    task.cancel = function () {
+      task.cleanup();
+      if (active === task) active = null;
+    };
+    active = task;
     attempts += 1;
-    status.textContent = (demo ? "ダミー" : "実データ") + "：取得中";
+    status.textContent = (demo ? "ダミー" : "実データ（JSONP）") + "：取得中";
     updateDetails();
 
     function fail(message) {
-      active = null;
+      if (active !== task) return;
+      task.cancel();
       status.textContent = message + (successes ? "。直前のJSONを保持しています。" : "。JSONは未表示です。");
       updateDetails();
     }
 
-    xhr.open("GET", endpoint + (endpoint.indexOf("?") === -1 ? "?" : "&") + "_=" + Date.now(), true);
-    xhr.withCredentials = false;
-    xhr.timeout = ScheduleConfig.requestTimeoutMs;
-    xhr.onload = function () {
-      if (xhr.status < 200 || xhr.status >= 300) return fail("取得失敗（HTTP " + xhr.status + "）");
-      var data;
-      try { data = JSON.parse(xhr.responseText); }
-      catch (error) { return fail("JSONを取得できませんでした。公開設定と権限許可を確認してください"); }
+    function receive(data) {
+      if (active !== task) return;
       if (!validPayload(data)) return fail("JSONの形式が検証用の仕様と一致しません");
-      active = null;
+      task.cancel();
       successes += 1;
       lastSuccess = tokyoTime();
       payload.textContent = JSON.stringify(data, null, 2);
       payload.hidden = false;
-      status.textContent = demo ? "ダミーデータ取得成功（Apps Scriptとの接続は未検証）" : "実データ取得成功";
+      status.textContent = demo ? "ダミーデータ取得成功（Apps Scriptとの接続は未検証）" : "実データ取得成功（JSONP）";
       updateDetails();
+    }
+
+    var separator = endpoint.indexOf("?") === -1 ? "?" : "&";
+    if (demo) {
+      // ダミーデータはローカルのJSONを読み、Googleには接続しません。
+      var xhr = new XMLHttpRequest();
+      task.cleanup = function () {
+        xhr.onload = xhr.onerror = xhr.ontimeout = null;
+        xhr.abort();
+      };
+      xhr.open("GET", endpoint + separator + "_=" + Date.now(), true);
+      xhr.withCredentials = false;
+      xhr.timeout = ScheduleConfig.requestTimeoutMs;
+      xhr.onload = function () {
+        if (xhr.status < 200 || xhr.status >= 300) return fail("ダミーデータの取得失敗（HTTP " + xhr.status + "）");
+        var data;
+        try { data = JSON.parse(xhr.responseText); }
+        catch (error) { return fail("ダミーデータをJSONとして読み取れませんでした"); }
+        receive(data);
+      };
+      xhr.onerror = function () { fail("ダミーデータの通信失敗"); };
+      xhr.ontimeout = function () { fail("ダミーデータの取得がタイムアウトしました"); };
+      xhr.send();
+      return;
+    }
+
+    // 実データはscriptとして読み込み、OBSで失敗したXHRの事前確認を使いません。
+    var callback = ScheduleConfig.jsonpCallbackPrefix + attempts;
+    var script = document.createElement("script");
+    var timeout;
+    task.cleanup = function () {
+      clearTimeout(timeout);
+      script.onload = script.onerror = null;
+      if (script.parentNode) script.parentNode.removeChild(script);
+      delete window[callback];
     };
-    xhr.onerror = function () { fail("通信失敗。接続・公開設定・CORSを確認してください"); };
-    xhr.ontimeout = function () { fail("取得がタイムアウトしました"); };
-    xhr.send();
+    window[callback] = receive;
+    script.async = true;
+    script.src = endpoint + separator + "callback=" + encodeURIComponent(callback) + "&_=" + Date.now();
+    script.onload = function () {
+      fail("JSONPのデータを受け取れませんでした。Apps Scriptの公開バージョンを確認してください");
+    };
+    script.onerror = function () { fail("JSONPの通信失敗。Apps Scriptの公開URLと応答形式を確認してください"); };
+    timeout = setTimeout(function () { fail("JSONPの取得がタイムアウトしました"); }, ScheduleConfig.requestTimeoutMs);
+    document.head.appendChild(script);
   }
 
   function start() {
@@ -88,7 +128,7 @@
       status.textContent = "末尾が /exec のApps Script公開URLを入力してください。";
       return;
     }
-    if (active) { active.abort(); active = null; }
+    if (active) { active.cancel(); }
     endpoint = value;
     start();
   };
@@ -97,7 +137,7 @@
     var day = tokyoDay();
     if (day !== lastDay) {
       lastDay = day;
-      if (active) { active.abort(); active = null; }
+      if (active) { active.cancel(); }
       request();
     }
   }, 1000);

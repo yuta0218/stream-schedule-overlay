@@ -24,8 +24,8 @@ function server(pages, id = 'yutasworks@gmail.com') {
       } }
     },
     ContentService: {
-      MimeType: { JSON: 'application/json' },
-      createTextOutput(text) { return { text, setMimeType() { return this; } }; }
+      MimeType: { JSON: 'application/json', JAVASCRIPT: 'application/javascript' },
+      createTextOutput(text) { return { text, setMimeType(type) { this.type = type; return this; } }; }
     }
   });
   vm.runInContext(read('docs/config.js') + '\n' + read('apps-script/Code.gs'), context);
@@ -85,6 +85,13 @@ function client(demo = true, configured = false) {
   const elements = Object.fromEntries(['connection', 'endpoint', 'status', 'details', 'payload']
     .map(id => [id, { textContent: '', hidden: id === 'payload', value: '' }]));
   const requests = [];
+  const scripts = [];
+  const timeouts = new Map();
+  let nextTimeout = 0;
+  const head = {
+    appendChild(script) { scripts.push(script); script.parentNode = this; },
+    removeChild(script) { script.parentNode = null; }
+  };
   const timers = [];
   let clock = Date.parse('2026-11-11T23:59:59+09:00');
   class FakeDate extends Date {
@@ -97,13 +104,17 @@ function client(demo = true, configured = false) {
   XHR.prototype.abort = function () { this.aborted = true; };
   const context = vm.createContext({
     Date: FakeDate, window: { location: { search: demo ? '?demo=1' : '' } },
-    document: { getElementById: id => elements[id] }, XMLHttpRequest: XHR,
-    setInterval(fn, ms) { timers.push({ fn, ms }); return timers.length; }, clearInterval() {}
+    document: { getElementById: id => elements[id], head, createElement(tag) {
+      assert.equal(tag, 'script'); return {};
+    } }, XMLHttpRequest: XHR,
+    setInterval(fn, ms) { timers.push({ fn, ms }); return timers.length; }, clearInterval() {},
+    setTimeout(fn, ms) { const id = ++nextTimeout; timeouts.set(id, { fn, ms }); return id; },
+    clearTimeout(id) { timeouts.delete(id); }
   });
   vm.runInContext(read('docs/config.js'), context);
   if (!configured) context.ScheduleConfig.webAppUrl = '';
   vm.runInContext(read('docs/probe.js'), context);
-  return { elements, requests, timers, setClock(value) { clock = Date.parse(value); } };
+  return { elements, requests, scripts, timers, timeouts, context, setClock(value) { clock = Date.parse(value); } };
 }
 
 test('初回失敗は本文を隠す。成功後の失敗・不正JSONは前回の本文を保つ', () => {
@@ -132,25 +143,112 @@ test('初回失敗は本文を隠す。成功後の失敗・不正JSONは前回�
   assert.match(elements.status.textContent, /形式/);
 });
 
-test('日付変更で即時にGETし、認証Cookieを送らない', () => {
+test('日付変更で処理中のJSONPを片付け、別の受け取り関数で即時に再取得する', () => {
   const c = client(false);
   assert.equal(c.requests.length, 0);
   c.elements.endpoint.value = 'https://script.google.com/macros/s/test/exec';
   c.elements.connection.onsubmit({ preventDefault() {} });
-  assert.equal(c.requests[0].withCredentials, false);
-  assert.equal(c.requests[0].method, 'GET');
+  assert.equal(c.requests.length, 0);
+  const first = c.scripts[0];
+  const oldName = new URL(first.src).searchParams.get('callback');
+  const oldReceive = c.context.window[oldName];
   c.setClock('2026-11-12T00:00:00+09:00');
   c.timers.find(t => t.ms === 1000).fn();
-  assert.equal(c.requests[0].aborted, true);
-  assert.equal(c.requests.length, 2);
+  assert.equal(first.parentNode, null);
+  assert.equal(c.context.window[oldName], undefined);
+  assert.equal(c.scripts.length, 2);
+  const newName = new URL(c.scripts[1].src).searchParams.get('callback');
+  assert.notEqual(oldName, newName);
+  oldReceive(JSON.parse(read('docs/demo.json')));
+  assert.equal(c.elements.payload.hidden, true);
+  assert.equal(c.timeouts.size, 1);
 });
 
 test('公開URLの設定があれば操作なしで実データを取得し、ダミーでは公開URLを使わない', () => {
   const live = client(false, true);
-  assert.equal(live.requests.length, 1);
-  assert.match(live.requests[0].url, /^https:\/\/script\.google\.com\/macros\/s\/.+\/exec\?_=/);
-  assert.equal(live.requests[0].withCredentials, false);
+  assert.equal(live.requests.length, 0);
+  assert.equal(live.scripts.length, 1);
+  assert.match(live.scripts[0].src, /^https:\/\/script\.google\.com\/macros\/s\/.+\/exec\?callback=streamScheduleCallback_1&_=/);
+  assert.equal(live.scripts[0].crossOrigin, undefined);
   assert.equal(live.timers.find(t => t.ms === 300000).ms, 300000);
   const demo = client(true, true);
   assert.match(demo.requests[0].url, /^demo\.json\?_=/);
+  assert.equal(demo.requests[0].withCredentials, false);
+  assert.equal(demo.scripts.length, 0);
+});
+
+test('JSONとJSONPが同じ公開項目を返し、JSONPも対象外予定を含めない', () => {
+  const start = new Date(Date.now() + 3600000).toISOString();
+  const pages = () => [{ items: [event('公開する配信\u2028次の行\u2029続き', start),
+    event('非公開予定', start, '')] }];
+  const normal = server(pages()).context.doGet();
+  assert.equal(normal.type, 'application/json');
+  const jsonp = server(pages()).context.doGet({ parameter: { callback: 'streamScheduleCallback_1' } });
+  assert.equal(jsonp.type, 'application/javascript');
+  assert.equal(jsonp.text.includes('\u2028'), false);
+  assert.equal(jsonp.text.includes('\u2029'), false);
+  let delivered;
+  vm.runInNewContext(jsonp.text, { streamScheduleCallback_1(data) { delivered = data; } });
+  assert.deepEqual(JSON.parse(JSON.stringify(delivered.streams)), JSON.parse(normal.text).streams);
+  assert.equal(jsonp.text.includes('非公開'), false);
+  assert.deepEqual(Object.keys(delivered), ['generatedAt', 'streams']);
+});
+
+test('不正なJSONP関数名はカレンダーを読む前に拒否する', () => {
+  for (const callback of ['', 'alert', 'streamScheduleCallback_', 'streamScheduleCallback_1.foo',
+    'streamScheduleCallback_1);alert(1)//']) {
+    const c = server([]);
+    let reads = 0;
+    c.context.Calendar.Calendars.get = () => { reads += 1; return { id: 'yutasworks@gmail.com' }; };
+    assert.throws(() => c.context.doGet({ parameter: { callback } }), /受け取り関数名/);
+    assert.equal(reads, 0);
+  }
+});
+
+function deliver(c, index, data) {
+  const script = c.scripts[index];
+  const onload = script.onload;
+  const callback = new URL(script.src).searchParams.get('callback');
+  c.context.window[callback](data);
+  onload();
+}
+
+test('JSONPの成功・再取得・通信失敗・タイムアウトで表示と後始末が正しい', () => {
+  const c = client(false, true);
+  const refresh = c.timers.find(t => t.ms === 300000);
+  c.scripts[0].onerror();
+  assert.equal(c.elements.payload.hidden, true);
+  assert.equal(c.scripts[0].parentNode, null);
+  assert.equal(c.timeouts.size, 0);
+  refresh.fn();
+  const data = JSON.parse(read('docs/demo.json'));
+  deliver(c, 1, data);
+  assert.match(c.elements.status.textContent, /実データ取得成功（JSONP）/);
+  assert.match(c.elements.details.textContent, /成功 1回/);
+  assert.equal(c.timeouts.size, 0);
+  assert.equal(c.scripts[1].parentNode, null);
+  const previous = c.elements.payload.textContent;
+  refresh.fn();
+  Array.from(c.timeouts.values())[0].fn();
+  assert.match(c.elements.status.textContent, /タイムアウト/);
+  assert.equal(c.elements.payload.textContent, previous);
+  assert.equal(c.scripts[2].parentNode, null);
+  refresh.fn();
+  deliver(c, 3, {});
+  assert.match(c.elements.status.textContent, /形式/);
+  assert.equal(c.elements.payload.textContent, previous);
+  refresh.fn();
+  data.generatedAt = '2026-11-12T00:01:00+09:00';
+  deliver(c, 4, data);
+  assert.match(c.elements.details.textContent, /成功 2回/);
+  assert.match(c.elements.payload.textContent, /2026-11-12T00:01/);
+  assert.deepEqual(Object.keys(c.context.window), ['location']);
+});
+
+test('古い公開版など、読み込みだけ成功してデータが届かない場合も失敗として扱う', () => {
+  const c = client(false, true);
+  c.scripts[0].onload();
+  assert.match(c.elements.status.textContent, /公開バージョン/);
+  assert.equal(c.elements.payload.hidden, true);
+  assert.equal(c.timeouts.size, 0);
 });

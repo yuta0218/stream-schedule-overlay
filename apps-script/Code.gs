@@ -1,8 +1,24 @@
 /** 取得検証用。公開するJSONは生成日時と対象配信の開始・終了・タイトルだけです。 */
-function doGet() {
+function doGet(request) {
+  var callback = request && request.parameter && request.parameter.callback;
+  if (callback !== undefined && !validCallback_(callback)) {
+    throw new Error("JSONPの受け取り関数名が正しくありません。");
+  }
   // 失敗を空の予定に変換せず、ページ側の取得失敗として扱います。
-  return ContentService.createTextOutput(JSON.stringify(buildPayload_(new Date())))
-    .setMimeType(ContentService.MimeType.JSON);
+  var json = JSON.stringify(buildPayload_(new Date()));
+  if (callback !== undefined) {
+    // JavaScriptの文字列としても解釈できるよう、改行区切り文字をエスケープします。
+    json = json.replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+    return ContentService.createTextOutput(callback + "(" + json + ");")
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+  return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
+}
+
+function validCallback_(callback) {
+  var prefix = ScheduleConfig.jsonpCallbackPrefix;
+  return typeof prefix === "string" && typeof callback === "string" &&
+    callback.indexOf(prefix) === 0 && /^[0-9]+$/.test(callback.slice(prefix.length));
 }
 
 function buildPayload_(now) {

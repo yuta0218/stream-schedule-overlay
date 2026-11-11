@@ -6,5 +6,6 @@ var ScheduleConfig = {
   days: 15,
   refreshMs: 5 * 60 * 1000,
   requestTimeoutMs: 20000,
+  jsonpCallbackPrefix: "streamScheduleCallback_",
   webAppUrl: "https://script.google.com/macros/s/AKfycbz3Icy5rmNBrTkcZ1vThWgzvOXOnHHMJ5LwXdqQWh_dtCHkxx099TArdZH-qxJyrem2/exec"
 };
